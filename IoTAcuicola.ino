@@ -1,23 +1,24 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <SoftwareSerial.h>                            //Puerto serial virtual
+#include <SoftwareSerial.h>                            
 #include <PID_v1.h>
 #include <ArduinoJson.h>
 #define ONE_WIRE_BUS 9
-#define rx 12                                          //define que pin sera rx
-#define tx 13                                          //define que pin sera tx
+#define rx 12                                          
+#define tx 13                                          
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
-SoftwareSerial myserial(rx, tx);                      //define como funcionara el softserial
+SoftwareSerial myserial(rx, tx);                      
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-String inputstring = "";                              //a string to hold incoming data from the PC
-String sensorstring = "";                             //a string to hold the data from the Atlas Scientific product
-boolean input_string_complete = false;                //have we received all the data from the PC
-boolean sensor_string_complete = false;               //have we received all the data from the Atlas Scientific product   
+String inputstring = "";                              
+String sensorstring = "";                             
+boolean input_string_complete = false;               
+boolean sensor_string_complete = false;                
 boolean ODI = true;                                       
 float celsius = 25, temp;
 float oxigenoDisuelto = 6;
 int mode = 0;
+int res= 0;
 double Setpoint, Input, Output;
 double Setpoint2, Input2, Output2;
 double Kp=2, Ki=5, Kd=1;
@@ -27,37 +28,43 @@ PID pidTemp(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 PID pidOxi(&Input2, &Output2, &Setpoint2, Kp2, Ki2, Kd2, DIRECT);
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void setup() {
-  Serial.begin(9600);                                 //set baud rate for the hardware serial port_0 to 9600
-  myserial.begin(9600);                               //set baud rate for the software serial port to 9600
-  inputstring.reserve(10);                            //set aside some bytes for receiving data from the PC
-  sensorstring.reserve(30);                           //set aside some bytes for receiving data from Atlas Scientific product
+  Serial.begin(9600);                                
+  myserial.begin(9600);                              
+  inputstring.reserve(10);                           
+  sensorstring.reserve(30);                          
   Setpoint = 33;
   Setpoint2 = 9;
   pidTemp.SetMode(AUTOMATIC);
   pidOxi.SetMode(AUTOMATIC);
   pinMode(3,OUTPUT);
-  pinMode(5,OUTPUT); 
+  pinMode(5,OUTPUT);
+  myserial.print("Cal");
+  myserial.print('\r');
+  myserial.print("s,0");
+  myserial.print('\r');
+  delay(10000);
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void serialEvent() {                                  //if the hardware serial port_0 receives a char
-  inputstring = Serial.readStringUntil(13);           //read the string until we see a <CR>
-  input_string_complete = true;                       //set the flag used to tell if we have received a completed string from the PC
+void serialEvent() {                                 
+  inputstring = Serial.readStringUntil(13);          
+  input_string_complete = true;                      
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop() {
-    automatico();
+    automatico();  
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void Json(){
   StaticJsonDocument<64> doc;
   float C = ((int) (celsius*10))/10.0;
   float DO = ((int) (oxigenoDisuelto*10))/10.0;
-  doc["T"] = C;
-  doc["O"] = DO;
-  String salida;
-  serializeJson(doc, salida);
-  Serial.print(salida);
-  delay(1000);
+  if(DO>1 && DO<16){
+    doc["T"] = C;
+    doc["O"] = DO;
+    String salida;
+    serializeJson(doc, salida);
+    Serial.println(salida);
+  } 
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void temperatura(){
@@ -65,31 +72,39 @@ void temperatura(){
   temp = sensors.getTempCByIndex(0);
   if(temp> -127){
     celsius= temp;
+    String t="t,"+ String(celsius);
+    res++;
+    if(res>=10){
+      myserial.print(t);
+      myserial.print('\r');
+      res=0;
+    }
   }
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void oxygenoD(){
+
   
-  if (input_string_complete == true) {                //if a string from the PC has been received in its entirety
-    myserial.print(inputstring);                      //send that string to the Atlas Scientific product
-    myserial.print('\r');                             //add a <CR> to the end of the string
-    inputstring = "";                                 //clear the string
-    input_string_complete = false;                    //reset the flag used to tell if we have received a completed string from the PC
+  if (input_string_complete == true) {                
+    myserial.print(inputstring);                      
+    myserial.print('\r');                            
+    inputstring = "";                                
+    input_string_complete = false;                   
   }
 
-  if (myserial.available() > 0) {                     //if we see that the Atlas Scientific product has sent a character
-    char inchar = (char)myserial.read();              //get the char we just received
-    sensorstring += inchar;                           //add the char to the var called sensorstring
-    if (inchar == '\r') {                             //if the incoming character is a <CR>
-      sensor_string_complete = true;                  //set the flag
+  if (myserial.available() > 0) {                   
+    char inchar = (char)myserial.read();              
+    sensorstring += inchar;                           
+    if (inchar == '\r') {                             
+      sensor_string_complete = true;                  
     }
   }
   
-  if (sensor_string_complete == true) {               //if a string from the Atlas Scientific product has been received in its entirety
+  if (sensor_string_complete == true) {              
     oxigenoDisuelto = sensorstring.toFloat();
     ODI =false;
-    sensorstring = "";                                //clear the string
-    sensor_string_complete = false;                   //reset the flag used to tell if we have received a completed string from the Atlas Scientific product
+    sensorstring = "";                               
+    sensor_string_complete = false;                 
   }
   
 }
@@ -108,7 +123,8 @@ void pidOxigeno(){
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void automatico(){
   lecturaSensores();
-  controlPID();
+  Json();
+  delay(1000);
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void onlySensors(){
@@ -123,7 +139,6 @@ void lecturaSensores(){
     oxygenoD();
   }
   ODI=true;
-  Json();
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void controlPID(){
